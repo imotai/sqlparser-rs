@@ -20,7 +20,7 @@
 //!     As a matter of fact, most of these keywords are not used at all
 //!     and could be removed.
 //! 3) a `RESERVED_FOR_TABLE_ALIAS` array with keywords reserved in a
-//! "table alias" context.
+//!    "table alias" context.
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -77,6 +77,7 @@ define_keywords!(
     AFTER,
     AGAINST,
     AGGREGATION,
+    ALIAS,
     ALL,
     ALLOCATE,
     ALTER,
@@ -217,6 +218,7 @@ define_keywords!(
     DECADE,
     DECIMAL,
     DECLARE,
+    DEDUPLICATE,
     DEFAULT,
     DEFAULT_DDL_COLLATION,
     DEFERRABLE,
@@ -267,6 +269,7 @@ define_keywords!(
     ENFORCED,
     ENGINE,
     ENUM,
+    EPHEMERAL,
     EPOCH,
     EQUALS,
     ERROR,
@@ -297,7 +300,9 @@ define_keywords!(
     FILE,
     FILES,
     FILE_FORMAT,
+    FILL,
     FILTER,
+    FINAL,
     FIRST,
     FIRST_VALUE,
     FIXEDSTRING,
@@ -351,6 +356,7 @@ define_keywords!(
     HOSTS,
     HOUR,
     HOURS,
+    ID,
     IDENTITY,
     IF,
     IGNORE,
@@ -382,6 +388,7 @@ define_keywords!(
     INT64,
     INT8,
     INTEGER,
+    INTERPOLATE,
     INTERSECT,
     INTERSECTION,
     INTERVAL,
@@ -532,6 +539,7 @@ define_keywords!(
     PARALLEL,
     PARAMETER,
     PARQUET,
+    PART,
     PARTITION,
     PARTITIONED,
     PARTITIONS,
@@ -682,6 +690,7 @@ define_keywords!(
     STDDEV_SAMP,
     STDIN,
     STDOUT,
+    STEP,
     STORAGE_INTEGRATION,
     STORED,
     STRICT,
@@ -845,6 +854,7 @@ pub const RESERVED_FOR_TABLE_ALIAS: &[Keyword] = &[
     Keyword::USING,
     Keyword::CLUSTER,
     Keyword::DISTRIBUTE,
+    Keyword::GLOBAL,
     // for MSSQL-specific OUTER APPLY (seems reserved in most dialects)
     Keyword::OUTER,
     Keyword::SET,

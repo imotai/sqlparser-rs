@@ -2206,6 +2206,7 @@ fn asof_joins() {
             relation: table_with_alias("trades_unixtime", "tu"),
             joins: vec![Join {
                 relation: table_with_alias("quotes_unixtime", "qu"),
+                global: false,
                 join_operator: JoinOperator::AsOf {
                     match_condition: Expr::BinaryOp {
                         left: Box::new(Expr::CompoundIdentifier(vec![
@@ -2255,4 +2256,10 @@ fn asof_joins() {
               "ON s.state = p.state ",
           "ORDER BY s.observed",
     ));
+}
+
+#[test]
+fn test_parse_position() {
+    snowflake().verified_query("SELECT position('an', 'banana', 1)");
+    snowflake().verified_query("SELECT n, h, POSITION(n IN h) FROM pos");
 }

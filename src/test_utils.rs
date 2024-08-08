@@ -111,10 +111,10 @@ impl TestedDialects {
     /// that:
     ///
     /// 1. parsing `sql` results in the same [`Statement`] as parsing
-    /// `canonical`.
+    ///    `canonical`.
     ///
     /// 2. re-serializing the result of parsing `sql` produces the same
-    /// `canonical` sql string
+    ///    `canonical` sql string
     pub fn one_statement_parses_to(&self, sql: &str, canonical: &str) -> Statement {
         let mut statements = self.parse_sql_statements(sql).expect(sql);
         assert_eq!(statements.len(), 1);
@@ -180,10 +180,10 @@ impl TestedDialects {
     /// Ensures that `sql` parses as a single [`Select`], and that additionally:
     ///
     /// 1. parsing `sql` results in the same [`Statement`] as parsing
-    /// `canonical`.
+    ///    `canonical`.
     ///
     /// 2. re-serializing the result of parsing `sql` produces the same
-    /// `canonical` sql string
+    ///    `canonical` sql string
     pub fn verified_only_select_with_canonical(&self, query: &str, canonical: &str) -> Select {
         let q = match self.one_statement_parses_to(query, canonical) {
             Statement::Query(query) => *query,
@@ -274,6 +274,7 @@ pub fn alter_table_op_with_name(stmt: Statement, expected_name: &str) -> AlterTa
             if_exists,
             only: is_only,
             operations,
+            on_cluster: _,
             location: _,
         } => {
             assert_eq!(name.to_string(), expected_name);
@@ -331,6 +332,7 @@ pub fn table_with_alias(name: impl Into<String>, alias: impl Into<String>) -> Ta
 pub fn join(relation: TableFactor) -> Join {
     Join {
         relation,
+        global: false,
         join_operator: JoinOperator::Inner(JoinConstraint::Natural),
     }
 }

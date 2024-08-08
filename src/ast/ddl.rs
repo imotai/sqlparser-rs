@@ -72,6 +72,21 @@ pub enum AlterTableOperation {
         if_exists: bool,
         cascade: bool,
     },
+    /// `ATTACH PART|PARTITION <partition_expr>`
+    /// Note: this is a ClickHouse-specific operation, please refer to
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/pakrtition#attach-partitionpart)
+    AttachPartition {
+        // PART is not a short form of PARTITION, it's a separate keyword
+        // which represents a physical file on disk and partition is a logical entity.
+        partition: Partition,
+    },
+    /// `DETACH PART|PARTITION <partition_expr>`
+    /// Note: this is a ClickHouse-specific operation, please refer to
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#detach-partitionpart)
+    DetachPartition {
+        // See `AttachPartition` for more details
+        partition: Partition,
+    },
     /// `DROP PRIMARY KEY`
     ///
     /// Note: this is a MySQL-specific operation.
@@ -272,6 +287,12 @@ impl fmt::Display for AlterTableOperation {
                 column_name,
                 if *cascade { " CASCADE" } else { "" }
             ),
+            AlterTableOperation::AttachPartition { partition } => {
+                write!(f, "ATTACH {partition}")
+            }
+            AlterTableOperation::DetachPartition { partition } => {
+                write!(f, "DETACH {partition}")
+            }
             AlterTableOperation::EnableAlwaysRule { name } => {
                 write!(f, "ENABLE ALWAYS RULE {name}")
             }
@@ -923,6 +944,18 @@ pub enum ColumnOption {
     NotNull,
     /// `DEFAULT <restricted-expr>`
     Default(Expr),
+
+    /// ClickHouse supports `MATERIALIZE`, `EPHEMERAL` and `ALIAS` expr to generate default values.
+    /// Syntax: `b INT MATERIALIZE (a + 1)`
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/create/table#default_values)
+
+    /// `MATERIALIZE <expr>`
+    Materialized(Expr),
+    /// `EPHEMERAL [<expr>]`
+    Ephemeral(Option<Expr>),
+    /// `ALIAS <expr>`
+    Alias(Expr),
+
     /// `{ PRIMARY KEY | UNIQUE } [<constraint_characteristics>]`
     Unique {
         is_primary: bool,
@@ -978,6 +1011,15 @@ impl fmt::Display for ColumnOption {
             Null => write!(f, "NULL"),
             NotNull => write!(f, "NOT NULL"),
             Default(expr) => write!(f, "DEFAULT {expr}"),
+            Materialized(expr) => write!(f, "MATERIALIZED {expr}"),
+            Ephemeral(expr) => {
+                if let Some(e) = expr {
+                    write!(f, "EPHEMERAL {e}")
+                } else {
+                    write!(f, "EPHEMERAL")
+                }
+            }
+            Alias(expr) => write!(f, "ALIAS {expr}"),
             Unique {
                 is_primary,
                 characteristics,
@@ -1275,20 +1317,49 @@ impl fmt::Display for UserDefinedTypeCompositeAttributeDef {
     }
 }
 
-/// PARTITION statement used in ALTER TABLE et al. such as in Hive SQL
+/// PARTITION statement used in ALTER TABLE et al. such as in Hive and ClickHouse SQL.
+/// For example, ClickHouse's OPTIMIZE TABLE supports syntax like PARTITION ID 'partition_id' and PARTITION expr.
+/// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/optimize)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
-pub struct Partition {
-    pub partitions: Vec<Expr>,
+pub enum Partition {
+    Identifier(Ident),
+    Expr(Expr),
+    /// ClickHouse supports PART expr which represents physical partition in disk.
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#attach-partitionpart)
+    Part(Expr),
+    Partitions(Vec<Expr>),
 }
 
 impl fmt::Display for Partition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "PARTITION ({})",
-            display_comma_separated(&self.partitions)
-        )
+        match self {
+            Partition::Identifier(id) => write!(f, "PARTITION ID {id}"),
+            Partition::Expr(expr) => write!(f, "PARTITION {expr}"),
+            Partition::Part(expr) => write!(f, "PART {expr}"),
+            Partition::Partitions(partitions) => {
+                write!(f, "PARTITION ({})", display_comma_separated(partitions))
+            }
+        }
+    }
+}
+
+/// DEDUPLICATE statement used in OPTIMIZE TABLE et al. such as in ClickHouse SQL
+/// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/optimize)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum Deduplicate {
+    All,
+    ByExpression(Expr),
+}
+
+impl fmt::Display for Deduplicate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Deduplicate::All => write!(f, "DEDUPLICATE"),
+            Deduplicate::ByExpression(expr) => write!(f, "DEDUPLICATE BY {expr}"),
+        }
     }
 }

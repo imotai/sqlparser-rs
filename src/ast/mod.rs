@@ -33,7 +33,7 @@ pub use self::data_type::{
 pub use self::dcl::{AlterRoleOperation, ResetConfig, RoleOption, SetConfigValue};
 pub use self::ddl::{
     AlterColumnOperation, AlterIndexOperation, AlterTableOperation, ColumnDef, ColumnOption,
-    ColumnOptionDef, ConstraintCharacteristics, DeferrableInitial, GeneratedAs,
+    ColumnOptionDef, ConstraintCharacteristics, Deduplicate, DeferrableInitial, GeneratedAs,
     GeneratedExpressionMode, IndexOption, IndexType, KeyOrIndexDisplay, Owner, Partition,
     ProcedureParam, ReferentialAction, TableConstraint, UserDefinedTypeCompositeAttributeDef,
     UserDefinedTypeRepresentation, ViewColumnDef,
@@ -43,14 +43,15 @@ pub use self::operator::{BinaryOperator, UnaryOperator};
 pub use self::query::{
     AfterMatchSkip, ConnectBy, Cte, CteAsMaterialized, Distinct, EmptyMatchesMode,
     ExceptSelectItem, ExcludeSelectItem, ExprWithAlias, Fetch, ForClause, ForJson, ForXml,
-    FormatClause, GroupByExpr, GroupByWithModifier, IdentWithAlias, IlikeSelectItem, Join,
-    JoinConstraint, JoinOperator, JsonTableColumn, JsonTableColumnErrorHandling, LateralView,
-    LockClause, LockType, MatchRecognizePattern, MatchRecognizeSymbol, Measure,
-    NamedWindowDefinition, NamedWindowExpr, NonBlock, Offset, OffsetRows, OrderByExpr,
-    PivotValueSource, Query, RenameSelectItem, RepetitionQuantifier, ReplaceSelectElement,
-    ReplaceSelectItem, RowsPerMatch, Select, SelectInto, SelectItem, SetExpr, SetOperator,
-    SetQuantifier, Setting, SymbolDefinition, Table, TableAlias, TableFactor, TableVersion,
-    TableWithJoins, Top, TopQuantity, ValueTableMode, Values, WildcardAdditionalOptions, With,
+    FormatClause, GroupByExpr, GroupByWithModifier, IdentWithAlias, IlikeSelectItem, Interpolate,
+    InterpolateExpr, Join, JoinConstraint, JoinOperator, JsonTableColumn,
+    JsonTableColumnErrorHandling, LateralView, LockClause, LockType, MatchRecognizePattern,
+    MatchRecognizeSymbol, Measure, NamedWindowDefinition, NamedWindowExpr, NonBlock, Offset,
+    OffsetRows, OrderBy, OrderByExpr, PivotValueSource, Query, RenameSelectItem,
+    RepetitionQuantifier, ReplaceSelectElement, ReplaceSelectItem, RowsPerMatch, Select,
+    SelectInto, SelectItem, SetExpr, SetOperator, SetQuantifier, Setting, SymbolDefinition, Table,
+    TableAlias, TableFactor, TableFunctionArgs, TableVersion, TableWithJoins, Top, TopQuantity,
+    ValueTableMode, Values, WildcardAdditionalOptions, With, WithFill,
 };
 pub use self::value::{
     escape_double_quote_string, escape_quoted_string, DateTimeField, DollarQuotedString,
@@ -323,6 +324,37 @@ pub struct DictionaryField {
 }
 
 impl fmt::Display for DictionaryField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.key, self.value)
+    }
+}
+
+/// Represents a Map expression.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct Map {
+    pub entries: Vec<MapEntry>,
+}
+
+impl Display for Map {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "MAP {{{}}}", display_comma_separated(&self.entries))
+    }
+}
+
+/// A map field within a map.
+///
+/// [duckdb]: https://duckdb.org/docs/sql/data_types/map.html#creating-maps
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct MapEntry {
+    pub key: Box<Expr>,
+    pub value: Box<Expr>,
+}
+
+impl fmt::Display for MapEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.key, self.value)
     }
@@ -763,6 +795,14 @@ pub enum Expr {
     /// ```
     /// [1]: https://duckdb.org/docs/sql/data_types/struct#creating-structs
     Dictionary(Vec<DictionaryField>),
+    /// `DuckDB` specific `Map` literal expression [1]
+    ///
+    /// Syntax:
+    /// ```sql
+    /// syntax: Map {key1: value1[, ... ]}
+    /// ```
+    /// [1]: https://duckdb.org/docs/sql/data_types/map#creating-maps
+    Map(Map),
     /// An access of nested data using subscript syntax, for example `array[2]`.
     Subscript {
         expr: Box<Expr>,
@@ -1329,6 +1369,9 @@ impl fmt::Display for Expr {
             }
             Expr::Dictionary(fields) => {
                 write!(f, "{{{}}}", display_comma_separated(fields))
+            }
+            Expr::Map(map) => {
+                write!(f, "{map}")
             }
             Expr::Subscript {
                 expr,
@@ -2119,6 +2162,10 @@ pub enum Statement {
         only: bool,
         operations: Vec<AlterTableOperation>,
         location: Option<HiveSetLocation>,
+        /// ClickHouse dialect supports `ON CLUSTER` clause for ALTER TABLE
+        /// For example: `ALTER TABLE table_name ON CLUSTER cluster_name ADD COLUMN c UInt32`
+        /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/update)
+        on_cluster: Option<Ident>,
     },
     /// ```sql
     /// ALTER INDEX
@@ -2656,6 +2703,11 @@ pub enum Statement {
         describe_alias: DescribeAlias,
         /// Hive style `FORMATTED | EXTENDED`
         hive_format: Option<HiveDescribeFormat>,
+        /// Snowflake and ClickHouse support `DESC|DESCRIBE TABLE <table_name>` syntax
+        ///
+        /// [Snowflake](https://docs.snowflake.com/en/sql-reference/sql/desc-table.html)
+        /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/describe-table)
+        has_table_keyword: bool,
         /// Table name
         #[cfg_attr(feature = "visitor", visit(with = "visit_relation"))]
         table_name: ObjectName,
@@ -2779,6 +2831,18 @@ pub enum Statement {
         to: Ident,
         with: Vec<SqlOption>,
     },
+    /// ```sql
+    /// OPTIMIZE TABLE [db.]name [ON CLUSTER cluster] [PARTITION partition | PARTITION ID 'partition_id'] [FINAL] [DEDUPLICATE [BY expression]]
+    /// ```
+    ///
+    /// See ClickHouse <https://clickhouse.com/docs/en/sql-reference/statements/optimize>
+    OptimizeTable {
+        name: ObjectName,
+        on_cluster: Option<Ident>,
+        partition: Option<Partition>,
+        include_final: bool,
+        deduplicate: Option<Deduplicate>,
+    },
 }
 
 impl fmt::Display for Statement {
@@ -2829,12 +2893,16 @@ impl fmt::Display for Statement {
             Statement::ExplainTable {
                 describe_alias,
                 hive_format,
+                has_table_keyword,
                 table_name,
             } => {
                 write!(f, "{describe_alias} ")?;
 
                 if let Some(format) = hive_format {
                     write!(f, "{} ", format)?;
+                }
+                if *has_table_keyword {
+                    write!(f, "TABLE ")?;
                 }
 
                 write!(f, "{table_name}")
@@ -3580,6 +3648,7 @@ impl fmt::Display for Statement {
                 only,
                 operations,
                 location,
+                on_cluster,
             } => {
                 write!(f, "ALTER TABLE ")?;
                 if *if_exists {
@@ -3588,9 +3657,13 @@ impl fmt::Display for Statement {
                 if *only {
                     write!(f, "ONLY ")?;
                 }
+                write!(f, "{name} ", name = name)?;
+                if let Some(cluster) = on_cluster {
+                    write!(f, "ON CLUSTER {cluster} ")?;
+                }
                 write!(
                     f,
-                    "{name} {operations}",
+                    "{operations}",
                     operations = display_comma_separated(operations)
                 )?;
                 if let Some(loc) = location {
@@ -4220,6 +4293,28 @@ impl fmt::Display for Statement {
                     write!(f, " WITH ({})", display_comma_separated(with))?;
                 }
 
+                Ok(())
+            }
+            Statement::OptimizeTable {
+                name,
+                on_cluster,
+                partition,
+                include_final,
+                deduplicate,
+            } => {
+                write!(f, "OPTIMIZE TABLE {name}")?;
+                if let Some(on_cluster) = on_cluster {
+                    write!(f, " ON CLUSTER {on_cluster}", on_cluster = on_cluster)?;
+                }
+                if let Some(partition) = partition {
+                    write!(f, " {partition}", partition = partition)?;
+                }
+                if *include_final {
+                    write!(f, " FINAL")?;
+                }
+                if let Some(deduplicate) = deduplicate {
+                    write!(f, " {deduplicate}")?;
+                }
                 Ok(())
             }
         }

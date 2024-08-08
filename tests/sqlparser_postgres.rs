@@ -677,6 +677,7 @@ fn parse_alter_table_add_columns() {
             only,
             operations,
             location: _,
+            on_cluster: _,
         } => {
             assert_eq!(name.to_string(), "tab");
             assert!(if_exists);
@@ -759,6 +760,7 @@ fn parse_alter_table_owner_to() {
                 only: _,
                 operations,
                 location: _,
+                on_cluster: _,
             } => {
                 assert_eq!(name.to_string(), "tab");
                 assert_eq!(
@@ -1159,7 +1161,7 @@ fn parse_copy_to() {
                     value_table_mode: None,
                     connect_by: None,
                 }))),
-                order_by: vec![],
+                order_by: None,
                 limit: None,
                 limit_by: vec![],
                 offset: None,
@@ -2491,7 +2493,7 @@ fn parse_array_subquery_expr() {
                         connect_by: None,
                     }))),
                 }),
-                order_by: vec![],
+                order_by: None,
                 limit: None,
                 limit_by: vec![],
                 offset: None,
@@ -4102,6 +4104,7 @@ fn parse_join_constraint_unnest_alias() {
                 with_offset_alias: None,
                 with_ordinality: false,
             },
+            global: false,
             join_operator: JoinOperator::Inner(JoinConstraint::On(Expr::BinaryOp {
                 left: Box::new(Expr::Identifier("c1".into())),
                 op: BinaryOperator::Eq,
@@ -4162,7 +4165,7 @@ fn test_simple_postgres_insert_with_alias() {
                         Expr::Value(Value::Number("123".to_string(), false))
                     ]]
                 })),
-                order_by: vec![],
+                order_by: None,
                 limit: None,
                 limit_by: vec![],
                 offset: None,
@@ -4231,7 +4234,7 @@ fn test_simple_postgres_insert_with_alias() {
                         ))
                     ]]
                 })),
-                order_by: vec![],
+                order_by: None,
                 limit: None,
                 limit_by: vec![],
                 offset: None,
@@ -4296,7 +4299,7 @@ fn test_simple_insert_with_quoted_alias() {
                         Expr::Value(Value::SingleQuotedString("0123".to_string()))
                     ]]
                 })),
-                order_by: vec![],
+                order_by: None,
                 limit: None,
                 limit_by: vec![],
                 offset: None,
@@ -4440,4 +4443,86 @@ fn test_table_unnest_with_ordinality() {
         } => {}
         _ => panic!("Expecting TableFactor::UNNEST with ordinality"),
     }
+}
+
+#[test]
+fn test_escaped_string_literal() {
+    match pg().verified_expr(r#"E'\n'"#) {
+        Expr::Value(Value::EscapedStringLiteral(s)) => {
+            assert_eq!("\n", s);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_unicode_string_literal() {
+    let pairs = [
+        // Example from the postgres docs
+        (r#"U&'\0441\043B\043E\043D'"#, "слон"),
+        // High unicode code point (> 0xFFFF)
+        (r#"U&'\+01F418'"#, "🐘"),
+        // Escaped backslash
+        (r#"U&'\\'"#, r#"\"#),
+        // Escaped single quote
+        (r#"U&''''"#, "'"),
+    ];
+    for (input, expected) in pairs {
+        match pg_and_generic().verified_expr(input) {
+            Expr::Value(Value::UnicodeStringLiteral(s)) => {
+                assert_eq!(expected, s);
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn check_arrow_precedence(sql: &str, arrow_operator: BinaryOperator) {
+    assert_eq!(
+        pg().verified_expr(sql),
+        Expr::BinaryOp {
+            left: Box::new(Expr::BinaryOp {
+                left: Box::new(Expr::Identifier(Ident {
+                    value: "foo".to_string(),
+                    quote_style: None,
+                })),
+                op: arrow_operator,
+                right: Box::new(Expr::Value(Value::SingleQuotedString("bar".to_string()))),
+            }),
+            op: BinaryOperator::Eq,
+            right: Box::new(Expr::Value(Value::SingleQuotedString("spam".to_string()))),
+        }
+    )
+}
+
+#[test]
+fn arrow_precedence() {
+    check_arrow_precedence("foo -> 'bar' = 'spam'", BinaryOperator::Arrow);
+}
+
+#[test]
+fn long_arrow_precedence() {
+    check_arrow_precedence("foo ->> 'bar' = 'spam'", BinaryOperator::LongArrow);
+}
+
+#[test]
+fn arrow_cast_precedence() {
+    // check this matches postgres where you would need `(foo -> 'bar')::TEXT`
+    let stmt = pg().verified_expr("foo -> 'bar'::TEXT");
+    assert_eq!(
+        stmt,
+        Expr::BinaryOp {
+            left: Box::new(Expr::Identifier(Ident {
+                value: "foo".to_string(),
+                quote_style: None,
+            })),
+            op: BinaryOperator::Arrow,
+            right: Box::new(Expr::Cast {
+                kind: CastKind::DoubleColon,
+                expr: Box::new(Expr::Value(Value::SingleQuotedString("bar".to_string()))),
+                data_type: DataType::Text,
+                format: None,
+            }),
+        }
+    )
 }
